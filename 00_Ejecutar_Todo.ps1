@@ -42,7 +42,7 @@ function Invoke-Sql([string]$archivo) {
     Write-Host ">> $archivo" -ForegroundColor Cyan
     $sqlArgs = @("-S", $Server, "-E", "-b", "-I", "-W", "-f", "65001", "-i", $copia)
     if ($ConfiarCertificado) { $sqlArgs += "-C" }
-    & sqlcmd @args 2>&1 | Tee-Object -FilePath $log
+    & sqlcmd @sqlArgs 2>&1 | Tee-Object -FilePath $log
     if ($LASTEXITCODE -ne 0) { throw "Fallo $archivo (revise $log). Se detiene el proceso." }
 }
 
