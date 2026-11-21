@@ -1,9 +1,13 @@
 ﻿/* =====================================================================
-   02 · STAGING DESDE SQL SERVER (Persona 1)  [T1, T2, T3 y T4]
-   Crea el esquema stg, copia el OLTP (con joins a catalogos) y limpia clientes.
+   02 · STAGING DESDE SQL SERVER 
+
+  -> Crea el esquema stg (carpeta dentro de una base de datos que agrupa tablas), copia el OLTP (con joins a catalogos) y limpia clientes.
+  -> Cada DROP TABLE IF EXISTS: las tablas se borran y se vuelven a crear. Eso es lo que permite correr el ETL desde cero con el mismo resultado.
+
    REQUISITOS: FINALBI_OLTP poblada y 01_Crear_DW.sql ejecutado.
-   Se recrean las tablas stg en cada ejecucion.
-   SIGUIENTE: extraccion_mongo/Extraer_Mongo.py (el .ps1 lo corre solo) y 03_ETL_Tiempo_T9.sql
+ 
+
+   PARTE E DEL ETL -> Se copian los datos de las fuentes al staging (lugar intermadio antes de limpiarlos), sin cambiarlos
    ===================================================================== */
 
 /* =====================================================================
@@ -14,7 +18,7 @@
 USE FINALBI_DW_GrupoN;
 GO
 
-IF SCHEMA_ID(N'stg') IS NULL EXEC (N'CREATE SCHEMA stg');
+IF SCHEMA_ID(N'stg') IS NULL EXEC (N'CREATE SCHEMA stg'); -- crea el esquema que es una carpeta para agrupar tablas
 GO
 
 /* 2.1 Clientes (con segmento y geografía) */
@@ -25,12 +29,12 @@ SELECT c.ClienteID, c.TipoDocumento, c.NumeroDocumento, c.Nombres, c.Apellidos, 
        ci.Nombre AS Ciudad, d.Nombre AS Departamento, r.Nombre AS Region, p.Nombre AS Pais,
        c.FechaRegistro, c.Activo
 INTO stg.SQL_Clientes
-FROM FINALBI_OLTP.dbo.Clientes c
-JOIN FINALBI_OLTP.dbo.SegmentosCliente sg ON sg.SegmentoID = c.SegmentoID
-JOIN FINALBI_OLTP.dbo.Ciudades ci         ON ci.CiudadID = c.CiudadID
-JOIN FINALBI_OLTP.dbo.Departamentos d     ON d.DepartamentoID = ci.DepartamentoID
-JOIN FINALBI_OLTP.dbo.Regiones r          ON r.RegionID = d.RegionID
-JOIN FINALBI_OLTP.dbo.Paises p            ON p.PaisID = r.PaisID;
+FROM FINALBI_OLTP.dbo.Clientes c -- permite leer la base oltp del mismo servidor
+JOIN FINALBI_OLTP.dbo.SegmentosCliente sg ON sg.SegmentoID = c.SegmentoID -- unimos tabls de oltp donde los datos estan separados en muchas tablas
+JOIN FINALBI_OLTP.dbo.Ciudades ci         ON ci.CiudadID = c.CiudadID -- y en cdada una  solo hay un numero que apnta a otra tabla no el nombre
+JOIN FINALBI_OLTP.dbo.Departamentos d     ON d.DepartamentoID = ci.DepartamentoID -- traemos el nombre para tabla dimensiones 
+JOIN FINALBI_OLTP.dbo.Regiones r          ON r.RegionID = d.RegionID -- o tramos llaves o num para tablas de hechos 
+JOIN FINALBI_OLTP.dbo.Paises p            ON p.PaisID = r.PaisID;  -- desnormalizacion t4
 
 /* 2.2 Productos (con subcategoría, categoría, marca y proveedor) */
 DROP TABLE IF EXISTS stg.SQL_Productos;
@@ -51,8 +55,8 @@ SELECT s.SucursalID, s.Nombre, s.TipoSucursal, s.FechaApertura,
        ci.Nombre AS Ciudad, d.Nombre AS Departamento, r.Nombre AS Region, p.Nombre AS Pais
 INTO stg.SQL_Sucursales
 FROM FINALBI_OLTP.dbo.Sucursales s
-JOIN FINALBI_OLTP.dbo.Ciudades ci     ON ci.CiudadID = s.CiudadID
-JOIN FINALBI_OLTP.dbo.Departamentos d ON d.DepartamentoID = ci.DepartamentoID
+JOIN FINALBI_OLTP.dbo.Ciudades ci     ON ci.CiudadID = s.CiudadID  -- hace las copias pero aun  no las pasa a stg.Cliente_limpio
+JOIN FINALBI_OLTP.dbo.Departamentos d ON d.DepartamentoID = ci.DepartamentoID -- esto se hará en 04_ETL_Dimensiones_y_Ventas.sql donde se pasa a las dimensiones finales
 JOIN FINALBI_OLTP.dbo.Regiones r      ON r.RegionID = d.RegionID
 JOIN FINALBI_OLTP.dbo.Paises p        ON p.PaisID = r.PaisID;
 
@@ -103,11 +107,14 @@ GO
 
 
 /* =====================================================================
-   SECCIÓN 3 · T1, T2, T3 (Y T4) SOBRE CLIENTES -> stg.Cliente_Limpio
+   Acá se hacen las transformaciones 
+   T1, T2, T3 (Y T4) SOBRE CLIENTES -> stg.Cliente_Limpio
    T1: TRIM y CONCAT_WS (CONCAT_WS ignora NULL: las empresas quedan bien)
    T2: F -> Femenino, M -> Masculino, NULL -> No aplica
    T3: edad cumplida al 31-12-2025 y rango (empresas: No aplica)
    T4: ciudad, departamento, región y país ya vienen desnormalizados
+
+   que hacemos? Toma los clientes crudos de stg.SQL_Clientes y crea una tabla limpia, stg.Cliente_Limpio.
    Esta tabla es la que usa quien arma DIM_Cliente (parte Mongo).
    ===================================================================== */
 USE FINALBI_DW_GrupoN;
@@ -121,12 +128,12 @@ SELECT c.ClienteID,
        c.TipoDocumento,
        c.NumeroDocumento,
        CASE WHEN c.TipoDocumento = 'NIT' THEN N'Empresa' ELSE N'Persona' END AS TipoCliente,
-       CONCAT_WS(N' ', NULLIF(TRIM(c.Nombres), N''), NULLIF(TRIM(c.Apellidos), N'')) AS NombreCompleto,
-       CASE c.Genero WHEN 'F' THEN N'Femenino'
+       CONCAT_WS(N' ', NULLIF(TRIM(c.Nombres), N''), NULLIF(TRIM(c.Apellidos), N'')) AS NombreCompleto, -- t1: armar nombre completo
+       CASE c.Genero WHEN 'F' THEN N'Femenino'  -- t2: se apsa de f-> femenino y de m->masculino
                      WHEN 'M' THEN N'Masculino'
                      ELSE N'No aplica' END AS Genero,
        c.FechaNacimiento,
-       CAST(a.Edad AS SMALLINT) AS Edad,
+       CAST(a.Edad AS SMALLINT) AS Edad, -- t3: convierte edad a smaillint que tiene dim_cliente y le pone cases
        CASE WHEN a.Edad IS NULL THEN N'No aplica'
             WHEN a.Edad < 18    THEN N'Menor de 18'
             WHEN a.Edad <= 25   THEN N'18-25'
@@ -139,7 +146,7 @@ SELECT c.ClienteID,
        c.Ciudad, c.Departamento, c.Region, c.Pais
 INTO stg.Cliente_Limpio
 FROM stg.SQL_Clientes c
-CROSS APPLY (
+CROSS APPLY (  -- calcular la edad 
     SELECT CASE WHEN c.FechaNacimiento IS NULL THEN NULL
                 ELSE DATEDIFF(YEAR, c.FechaNacimiento, @Corte)
                      - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, c.FechaNacimiento, @Corte), c.FechaNacimiento) > @Corte

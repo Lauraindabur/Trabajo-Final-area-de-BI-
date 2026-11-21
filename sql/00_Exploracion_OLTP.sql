@@ -21,7 +21,7 @@
 USE FINALBI_OLTP;
 GO
 
-SELECT t.name AS Tabla, SUM(p.rows) AS Registros
+SELECT t.name AS Tabla, SUM(p.rows) AS Registros /* usa las vistas del sistema para ver cuantas filas tiene cada una de las 19 tablas*/
 FROM sys.tables t
 JOIN sys.partitions p ON p.object_id = t.object_id AND p.index_id IN (0, 1)
 GROUP BY t.name
@@ -40,7 +40,7 @@ GO
 USE FINALBI_OLTP;
 GO
 
-SELECT Tipo, Problema, Tabla, Registros
+SELECT Tipo, Problema, Tabla, Registros  /* cada select revisa una cosa y devuelve una fila y se pega con union all */
 FROM (
     /* ---- Clientes ---- */
     SELECT 1 AS Orden, N'Dato sucio' AS Tipo, N'Nombres con espacios sobrantes' AS Problema, N'Clientes' AS Tabla, COUNT(*) AS Registros
@@ -141,7 +141,7 @@ FROM (
 ORDER BY Orden;
 GO
 
-/* 1.2 Muestras para el documento */
+/* 1.2 Muestras para el documento */ /* 4 consultas pequeñas que sirveen como evidencia que pide el punto 3 parte 1 */
 -- Nombres con espacios sobrantes (los corchetes hacen visibles los espacios)
 SELECT TOP (10) ClienteID, CONCAT(N'[', Nombres, N']') AS NombreEntreCorchetes,
        DATALENGTH(Nombres) AS BytesOriginal, DATALENGTH(TRIM(Nombres)) AS BytesLimpio
@@ -149,14 +149,14 @@ FROM dbo.Clientes
 WHERE DATALENGTH(Nombres) <> DATALENGTH(TRIM(Nombres))
 ORDER BY ClienteID;
 
--- Productos inactivos con más líneas vendidas
+-- Productos inactivos con más líneas vendidas -> productos inativos con mas ventas
 SELECT TOP (10) p.ProductoID, p.SKU, p.Activo, COUNT(*) AS LineasVendidas
 FROM dbo.DetallePedido d JOIN dbo.Productos p ON p.ProductoID = d.ProductoID
 WHERE p.Activo = 0
 GROUP BY p.ProductoID, p.SKU, p.Activo
 ORDER BY LineasVendidas DESC;
 
--- Precio cobrado frente a precio de lista
+-- Precio cobrado frente a precio de lista  -> muestra que en 2024 se vencio a pecio distinto al de la lsita 
 SELECT TOP (10) d.DetalleID, p.ProductoID, YEAR(o.FechaPedido) AS Anio, p.PrecioLista, d.PrecioUnitario,
        CAST(d.PrecioUnitario * 1.0 / p.PrecioLista AS DECIMAL(6,3)) AS RazonPrecio
 FROM dbo.DetallePedido d
@@ -165,7 +165,7 @@ JOIN dbo.Pedidos o ON o.PedidoID = d.PedidoID
 WHERE d.PrecioUnitario <> p.PrecioLista
 ORDER BY d.DetalleID;
 
--- Distribución de pedidos por estado y canal
+-- Distribución de pedidos por estado y canal -> muestra cuantis pedidos se pirden por estado
 SELECT e.Nombre AS Estado, c.Nombre AS Canal, COUNT(*) AS Pedidos
 FROM dbo.Pedidos p
 JOIN dbo.EstadosPedido e ON e.EstadoID = p.EstadoID

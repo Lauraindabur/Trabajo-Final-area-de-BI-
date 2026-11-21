@@ -1,17 +1,22 @@
 ﻿/* =====================================================================
-   04 · ETL DIMENSIONES Y FACT_Ventas (Persona 1)  [T5, T6, T7, T8]
+   04 · ETL DIMENSIONES Y FACT_Ventas   [T5, T6, T7, T8]
    SECCIÓN 4  DIM_Producto (T5), DIM_Sucursal (T4), DIM_CanalVenta, DIM_Empleado
    SECCIÓN 5  DIM_Cliente base (parte SQL)
    SECCIÓN 6  FACT_Ventas (T6, T7, T8). CampanaAtribuidaKey queda en -1 (lo llena el 07).
-   REQUISITOS: 02_Staging_SQL.sql y 03_ETL_Tiempo_T9.sql ejecutados.
+
+   QUE SE HACE:
+   llena las dimensiones y la tabla de ventas a partir de lo que dejó el staging. 
+   toma las copias crudas del OLTP y arma las tablas finales del DW
+
    Re-ejecutable: la 4.0 vacia FACT_Ventas y las dimensiones (sin tocar la fila -1).
    ===================================================================== */
 
 /* =====================================================================
    SECCIÓN 4 · DIMENSIONES: DIM_Producto (T5), DIM_Sucursal (T4),
                 DIM_CanalVenta, DIM_Empleado
-   4.0 Vaciar el destino: primero la fact (referencia a las dimensiones),
-       luego las dimensiones sin tocar la fila -1, y reiniciar identity.
+
+ 4.0 Vaciar el destino: primero la fact (referencia a las dimensiones),
+ luego las dimensiones sin tocar la fila -1, y reiniciar identity.
    ===================================================================== */
 USE FINALBI_DW_GrupoN;
 GO
@@ -28,7 +33,7 @@ DBCC CHECKIDENT (N'dbo.DIM_Sucursal',   RESEED, 0) WITH NO_INFOMSGS;
 DBCC CHECKIDENT (N'dbo.DIM_CanalVenta', RESEED, 0) WITH NO_INFOMSGS;
 DBCC CHECKIDENT (N'dbo.DIM_Empleado',   RESEED, 0) WITH NO_INFOMSGS;
 GO
-
+-- Desde 4.1 a 4.4 -> Se copian producto, sucursal, canal y empleado desde el staging
 /* 4.1 DIM_Producto (T5)
    RangoPrecio según PrecioLista. No se filtran los inactivos: tienen ventas. */
 INSERT INTO dbo.DIM_Producto (ProductoID, SKU, NombreProducto, Subcategoria, Categoria, Marca, Proveedor,
@@ -77,7 +82,9 @@ GO
 
 /* =====================================================================
    SECCIÓN 5 · DIM_Cliente (base)
-   DIM_Tiempo (T9) ya la cargo 03_ETL_Tiempo_T9.sql; aqui NO se repite.
+   
+   Se carga la parte SQL de DIM_Cliente (la de Mongo llega después, en el 05)
+   (DIM_Tiempo (T9) ya la cargó 03_ETL_Tiempo_T9.sql; aqui NO se repite.)
    ===================================================================== */
 USE FINALBI_DW_GrupoN;
 GO
