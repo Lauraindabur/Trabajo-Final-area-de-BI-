@@ -1,27 +1,30 @@
 ﻿/* =====================================================================
-   08 · VALIDACIÓN GENERAL (script unificado)   [Parte 4]
+   08 · VALIDACIÓN GENERAL (script unificado)   
+   Revisa que lo que cargaron los otros scripts esté bien.
    SECCIÓN 7  Ventas: conteos, conciliación por estado, cuadre de dinero, miembro -1, T7
    SECCIÓN 8  Consolidado (OK/ERROR): extracción Mongo, marketing, clientes y perfiles,
               DIM_Tiempo (T9), geografía (T4), miembro -1 en FACT_InteraccionMarketing
               (Parte 4 punto 3), coherencia de banderas y T19.
    SECCIÓN 9  Reporte de calidad T10-T18 (cuántos registros afectó cada regla)
    SECCIÓN 10 Validación de perfiles de la Persona 2 (OK/ERROR propios)
+
    Al final: resumen con el total de controles OK y ERROR.
-   Guardar una captura de cada resultado para el documento técnico.
+   
    ===================================================================== */
 USE FINALBI_DW_GrupoN;
 GO
 
 /* =====================================================================
-   SECCIÓN 7 · VALIDACIÓN DE LA CARGA DE VENTAS (Persona 1)  [Parte 4, puntos 1 y 2]
-   Todas las columnas "Resultado" deben decir OK. Guardar capturas.
+   SECCIÓN 7 · VALIDACIÓN DE LA CARGA DE VENTAS 
+   comprobar que FACT_Ventas y sus dimensiones se cargaron completas y con los números correctos, comparándolas contra el OLTP
+   Todas las columnas "Resultado" deben decir OK. 
    ===================================================================== */
 USE FINALBI_DW_GrupoN;
 GO
 
 /* 7.1 Conteos origen -> destino en cada paso */
 SELECT x.Paso, x.Origen, x.Destino,
-       CASE WHEN x.Origen = x.Destino THEN N'OK' ELSE N'ERROR' END AS Resultado
+       CASE WHEN x.Origen = x.Destino THEN N'OK' ELSE N'ERROR' END AS Resultado --si origen y destino son iguales, escribe OK; si no, ERROR
 FROM (
     SELECT 1 AS Orden, N'OLTP.DetallePedido -> stg.SQL_Ventas' AS Paso,
            (SELECT COUNT(*) FROM FINALBI_OLTP.dbo.DetallePedido) AS Origen,
@@ -57,7 +60,7 @@ FROM (
 ORDER BY x.Orden;
 GO
 
-/* 7.2 Conciliación por estado: qué se carga y qué se descarta (T6) */
+/* 7.2 Conciliación por estado: responde a ¿llegaron todas las filas en cada paso? */
 SELECT o.Estado, o.Pedidos, o.Lineas AS LineasOrigen,
        CASE WHEN o.Estado = N'Completado' THEN (SELECT COUNT(*) FROM dbo.FACT_Ventas) ELSE 0 END AS LineasEnFact,
        CASE WHEN o.Estado = N'Completado' THEN o.Lineas - (SELECT COUNT(*) FROM dbo.FACT_Ventas)

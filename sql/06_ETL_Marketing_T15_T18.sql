@@ -1,14 +1,22 @@
 ﻿/* =====================================================================
    06 · ETL DE MARKETING DESDE MONGODB  [T15, T16, T17, T18]
    Carga DIM_CanalMarketing, DIM_Campana y FACT_InteraccionMarketing.
+
    Parte: stg.mongo_campanas y stg.mongo_interacciones (las llena Extraer_Mongo.py).
-   Persona de marketing (origen: MarketingP3.sql), ajustado a este DW:
+
+   Persona de marketing:
      - Fechas de texto (dd/mm/aaaa hh:mm) con estilo 103 EXPLICITO y las ISO con 126
        (con TRY_CAST el resultado dependia del idioma del servidor).
      - CuponRedimido se toma del campo cuponRedimido del documento (no es un tipo de evento).
      - La fecha parseada de cada evento se guarda en stg.Interaccion_Evento (la reutiliza T19).
+
    REQUISITOS: 03_ETL_Tiempo_T9, 04_ETL_Dimensiones_y_Ventas y 05_ETL_Cliente_Mongo ejecutados.
-   Re-ejecutable.
+   
+   QUE SE HACE:
+   Ultimo archivo de carga
+   Toma las campañas e interacciones de Mongo que Extraer_Mongo.py dejó en stg.mongo_campanas y stg.mongo_interacciones, y llena 3 tablas del DW
+   Transformaciones se hacen despues del staging y antes de que esten en el DW
+   Se llevan a DIM_Campana, DIM_CanalMarketing, FACT_InteraccionMarketing
    ===================================================================== */
 USE FINALBI_DW_GrupoN;
 GO
@@ -60,7 +68,7 @@ WHEN NOT MATCHED THEN INSERT (CampanaID, NombreCampana, Objetivo, FechaInicio, F
         src.CategoriasPromocionadas, src.PorcentajeDescuento, src.CodigoCupon, src.Presupuesto, src.Responsable);
 GO
 
-/* 3. T15 + T16 · un evento por fila (desanidar JSON) con su fecha en hora Colombia
+/* 3. T15 + T16   Abre la lista de eventos (OPENJSON), deja un evento por fila (desanida JSON) y arregla las fechas con su hora en COLOMBIA
       Fechas ISO (yyyy-mm-ddThh:mi:ss, UTC)  -> estilo 126
       Fechas texto (dd/mm/aaaa hh:mm)        -> estilo 103 (se asume UTC, igual que las ISO)
       UTC -> Colombia = UTC-5 */
@@ -80,7 +88,7 @@ CROSS APPLY OPENJSON(i.EventosJSON) WITH (tipo NVARCHAR(50) '$.tipo', fecha NVAR
 CREATE INDEX IX_Interaccion_Evento ON stg.Interaccion_Evento (InteraccionID, TipoEvento);
 GO
 
-/* 4. T15 + T17 · FACT_InteraccionMarketing (una fila por interaccion)
+/* 4. T15 + T17 · FACT_InteraccionMarketing -> Arma una fila por interacción con banderas 0/1 y busca las claves de las dimensiones
       Banderas 0/1 por tipo de evento ('leido' cuenta como Abierto).
       HorasHastaApertura = primera apertura - primer enviado/entregado (si no, NULL).
       TiempoKey = fecha (Colombia) del primer evento.

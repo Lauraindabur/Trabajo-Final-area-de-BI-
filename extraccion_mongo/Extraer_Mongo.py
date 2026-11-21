@@ -13,6 +13,13 @@ Opciones (o variables de entorno):
     --grupo       numero del grupo -> base FINALBI_DW_Grupo<N>
 NO se escriben claves en el codigo: si usan Atlas, pasen la URI por
 --mongo-uri o por la variable MONGO_URI.
+
+QUE SE HACE COMO GUIA
+1. Se conecta a MongoDB con pymongo.
+2. Se conecta a SQL Server con pyodbc.
+3. Crea sus tablas de staging: stg.mongo_campanas y stg.mongo_interacciones.
+4. Lee los documentos de Mongo y los inserta en esas tablas, sin limpiar (fechas en texto, presupuesto como “11.700.000”, eventos como JSON).
+5. Anota en stg.ControlExtraccion cuántos documentos había y cuántos se cargaron.
 """
 import argparse, json, os, sys
 from datetime import datetime, timezone

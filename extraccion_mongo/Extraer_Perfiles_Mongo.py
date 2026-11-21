@@ -1,6 +1,5 @@
 """
 PARTE 3 · Extracción de perfiles_marketing (MongoDB) -> stg.PerfilesMarketing (SQL Server)
-Persona 2.
 
 Por qué Python (pymongo + pyodbc):
   - Lee los documentos directamente de MongoDB, sin archivos intermedios.
@@ -12,10 +11,28 @@ Por qué Python (pymongo + pyodbc):
 Uso:
   pip install pymongo pyodbc
   python extraer_perfiles_mongo.py
-  (Si tu SQL Server tiene otro nombre, cambia SQL_SERVER abajo
-   o ejecuta:  python extraer_perfiles_mongo.py "localhost\\SQLEXPRESS")
-
+  (Si  SQL Server tiene otro nombre, cambia SQL_SERVER abajo o ejecuta:  python extraer_perfiles_mongo.py "localhost\\SQLEXPRESS")
 Re-ejecutable: vacía stg.PerfilesMarketing antes de cargar.
+
+Tenemos 3 coleccones con objetos anidados: perfiles marketing, interacciones marketing,capañas
+QUE HACEMOS: 
+
+
+1. recibe --grupo, la dirección de Mongo, el servidor SQL, y arma el nombre de la base (FINALBI_DW_Grupo4).
+2. driver_sql() -> busca el driver ODBC más nuevo instalado (18, 17 o el antiguo).
+Funciones auxiliares:
+1. utc() quita la zona horaria de las fechas, sin convertirlas (se guardan en UTC).
+2. a_texto() pasa cualquier valor a texto.
+3. tipo() anota con qué tipo llegó el dato (int, string). Es la evidencia de T10 y T13.
+4. a_json() convierte un arreglo en texto JSON.
+5. fila(doc) (72-94): convierte un documento en una fila plana. Los objetos anidados se aplanan en columnas (consentimientos.email → ConsEmail, fidelizacion.nivel → FidNivel). Los arreglos (intereses, encuestasNPS) se guardan como texto JSON. Si falta fidelizacion, marca TieneFidelizacion = 0.
+
+-> EN MAIN
+
+1. Cuenta y lee los documentos de Mongo.
+2.Se conecta a SQL Server, vacía stg.PerfilesMarketing (TRUNCATE) e inserta todo de golpe (fast_executemany).
+3. Cuenta cuántas filas quedaron y las anota en stg.ControlExtraccion con un MERGE (actualiza si ya existe y, si no, inserta).
+4. Si el conteo no coincide, el script falla con sys.exit("ERROR..."). Eso detiene el pipeline.
 """
 import argparse
 import json

@@ -1,21 +1,21 @@
 ﻿/* =====================================================================
-   PARTE 3 · ETL de perfiles_marketing: T10, T11, T12, T13 y T14 (Persona 2)
+   PARTE 3 · ETL de perfiles_marketing: T10, T11, T12, T13 y T14 
 
-   Orden de ejecución:
-     1. FINALBI_DW_GrupoN.sql           (crea el DW)
-     2. P2_01_stg_perfiles.sql          (crea el staging de perfiles)
-     3. python extraer_perfiles_mongo.py  (MongoDB -> stg.PerfilesMarketing)
-     4. Carga de DIM_Cliente desde el OLTP (T1-T4, Persona 1 / Persona 4)
-     5. ESTE SCRIPT: limpia los perfiles y enriquece DIM_Cliente
-
-   Re-ejecutable: recrea stg.PerfilCliente y vuelve a escribir las columnas
-   de mercadeo de DIM_Cliente; da el mismo resultado cada vez.
+   Orden de ejecución -> va despues de los 2 pasos
+     1. Extraer_Perfiles_Mongo.py copió los perfiles crudos a stg.PerfilesMarketing.
+     2. 04 creó DIM_Cliente con los clientes del OLTP. Las columnas de mercadeo estaban en valores por defecto
+     3. QUE SE HACE ACÁ: Toma los perfiles crudos de Mongo (stg.PerfilesMarketing), los limpia y completa las columnas de mercadeo de DIM_Cliente
+.
 
    Resultado:
      stg.PerfilCliente  1 fila por cliente, ya limpia (contrato con DIM_Cliente)
+
+     se pasa con un UPDATE -> cada cliente de DIM_Cliente busca su fila en stg.PerfilCliente (por el ID del cliente) y copia ahí sus columnas de mercadeo
+     
      DIM_Cliente        columnas de mercadeo llenas (NivelFidelizacion, Puntos,
                         CanalPreferido, Acepta*, Intereses, NPSPromedio, TipoNPS,
                         OrigenRegistro, TienePerfilMarketing)
+
      dbo.ReporteCalidadDatos  filas de la fuente "Mongo · perfiles"
    ===================================================================== */
 USE FINALBI_DW_GrupoN;
@@ -23,11 +23,11 @@ GO
 SET NOCOUNT ON;
 
 /* ---------------------------------------------------------------------
-   T10 · Tipo de dato: clienteId en texto -> entero
+   T10 · Tipo de dato: clienteId en texto -> entero se guarda en #Perfiles
    Se quitan espacios y se convierte con TRY_CAST (si no es número queda NULL
    y se reporta; en estos datos no ocurre).
    --------------------------------------------------------------------- */
-DROP TABLE IF EXISTS #Perfiles;
+DROP TABLE IF EXISTS #Perfiles; -- tabla temporal
 SELECT p.*,
        TRY_CAST(LTRIM(RTRIM(p.ClienteIdRaw)) AS INT) AS ClienteID
 INTO #Perfiles
@@ -54,6 +54,7 @@ WHERE x.rn = 1;
    Se compara sin mayúsculas ni tildes (collation CI_AI), sin espacios y
    aceptando el singular ("Deporte" -> Deportes). Lo que no coincide va a
    "Otro" y se reporta.
+   -> Corrige los intereses y los junta en un solo texto por cliente
    --------------------------------------------------------------------- */
 DROP TABLE IF EXISTS #Intereses;
 SELECT v.FilaID, v.ClienteID,
@@ -77,7 +78,7 @@ FROM (SELECT DISTINCT ClienteID, Categoria FROM #Intereses) d
 GROUP BY d.ClienteID;
 
 /* ---------------------------------------------------------------------
-   T14 · Desanidar encuestasNPS y agregar por cliente
+   T14  Abre las encuestas NPS y saca el promedio por cliente
    NPSPromedio = promedio de puntajes; clasificación del promedio:
    Promotor >= 9 · Pasivo >= 7 y < 9 · Detractor < 7 · sin encuestas = "Sin encuesta"
    --------------------------------------------------------------------- */
@@ -98,8 +99,9 @@ FROM #Encuestas
 GROUP BY ClienteID;
 
 /* ---------------------------------------------------------------------
-   Perfil limpio: 1 fila por cliente (incluye T13)
+   Perfil limpio: 1 fila por cliente (incluye T13) -> Junta todo en una fila limpia por cliente
    T13 · Sin fidelizacion -> "Sin programa" y 0 puntos; puntos en texto -> entero
+
    Adicional A1 · canal preferido sin consentimiento para ese canal -> "Ninguno"
                   (no se le puede escribir por ese canal: Ley 1581)
    --------------------------------------------------------------------- */
@@ -151,7 +153,7 @@ ALTER TABLE stg.PerfilCliente ADD CONSTRAINT PK_stg_PerfilCliente PRIMARY KEY (C
    Clientes sin perfil -> valores por defecto y TienePerfilMarketing = 0
    El miembro -1 no se toca.
    --------------------------------------------------------------------- */
-UPDATE d SET
+UPDATE d SET -- se copia la fila limpia al DIM_CLIENTE
     d.NivelFidelizacion    = ISNULL(p.NivelFidelizacion, N'Sin programa'),
     d.PuntosFidelizacion   = ISNULL(p.PuntosFidelizacion, 0),
     d.CanalPreferido       = ISNULL(p.CanalPreferido, N'Sin perfil'),
@@ -163,12 +165,12 @@ UPDATE d SET
     d.NPSPromedio          = p.NPSPromedio,
     d.TipoNPS              = ISNULL(p.TipoNPS, N'Sin encuesta'),
     d.TienePerfilMarketing = CASE WHEN p.ClienteID IS NULL THEN 0 ELSE 1 END
-FROM dbo.DIM_Cliente d
+FROM dbo.DIM_Cliente d --dbo es que es del esquema del DATAWAREHOUSE
 LEFT JOIN stg.PerfilCliente p ON p.ClienteID = d.ClienteID
 WHERE d.ClienteKey <> -1;
 
 /* ---------------------------------------------------------------------
-   Reporte de calidad (Parte 4): una fila por problema de perfiles
+   Reporte de calidad:    Anota cuántos problemas se encontraron y qué regla se aplicó
    --------------------------------------------------------------------- */
 IF OBJECT_ID(N'dbo.ReporteCalidadDatos') IS NULL
 CREATE TABLE dbo.ReporteCalidadDatos (
